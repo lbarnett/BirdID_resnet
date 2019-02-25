@@ -1,12 +1,13 @@
 from __future__ import division
 
 import numpy as np
+import os
 
 from keras.callbacks import (ModelCheckpoint, ReduceLROnPlateau, CSVLogger)
 
 
 def run(model, train, val, num_epochs=100, initial_epoch=0,
-        lr_plateau=np.sqrt(0.1), patience=5):
+        lr_plateau=np.sqrt(0.1), patience=5, results_dir='results'):
     """Train a Keras model with given training and validation data.
 
     The learning rate will be reduced if the validation loss does not get better
@@ -31,6 +32,7 @@ def run(model, train, val, num_epochs=100, initial_epoch=0,
         lr_plateau: The factor that the current learning rate will be reduced
             if the validation loss does not get better.
         patience: The number of epochs to wait before reducing learning rate.
+        results_dir: Path to directory where model, etc. are saved.
 
     Returns: The best validation loss.
 
@@ -42,12 +44,23 @@ def run(model, train, val, num_epochs=100, initial_epoch=0,
     val_batch_size = val.batch_size
     optimizer = model.optimizer
 
-    # callbacks list
+    # Get the folder name to use as a tag on model and log file
+    tag = os.path.basename(os.path.normpath(results_dir))
+
+    # callbacks img_list
+    # ModelCheckpoint - save the best weights. Because save_weights_only
+    # is not specified, it defaults to false, so this saves the model
+    # architecture and the weights.
+    # Note that this version generates a bunch of files that you don't need
+#    model_checkpoint = ModelCheckpoint(
+#        os.path.join(results_dir, 'best_model_{epoch:02d}-{val_loss:.2f}.hdf5'),
+#        monitor='val_loss', verbose=1, save_best_only=True)
     model_checkpoint = ModelCheckpoint(
-        'best_model.hdf5', monitor='val_loss', verbose=1, save_best_only=True)
+        os.path.join(results_dir, tag + '_best_model.hdf5'),
+        monitor='val_loss', verbose=1, save_best_only=True)
     reduce_lr = ReduceLROnPlateau(
         factor=lr_plateau, patience=patience, verbose=1)
-    csv_logger = CSVLogger('training.csv')
+    csv_logger = CSVLogger(os.path.join(results_dir, tag + '_training.csv'))
 
     print "Number of parameters =", model.count_params()
     print "Training samples =", num_train_samples
