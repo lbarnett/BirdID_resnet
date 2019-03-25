@@ -11,7 +11,7 @@ import argparse
 import importlib
 import re
 import os
-# import shutil
+import shutil
 
 
 import keras
@@ -31,10 +31,11 @@ from scipy.misc import imread
 
 
 from utils.imgprocessing import meanstd, center_crop, resize_and_crop
-from utils.imgloader import _copy_data
+# from utils.imgloader import _copy_data
 
 
-def predict_img(im_filename, model, data_module, categories):
+def predict_img(im_filename, model, data_module, categories,
+                positive_id_threshold):
     """
     Make a prediction on the category of a single image.
 
@@ -54,7 +55,8 @@ def predict_img(im_filename, model, data_module, categories):
     Predicted category, category name, probability of prediction.
 
     """
-    print('Classifying', im_filename)
+    base, fn = os.path.split(im_filename)
+    # print('Classifying', fn)
     im = imread(im_filename, mode='RGB')
     # Display image
     # plt.imshow(im)
@@ -88,13 +90,20 @@ def predict_img(im_filename, model, data_module, categories):
     # print(predictions)
     idx = np.argmax(predictions[0])
     prob = predictions[0, idx]
-    cat = categories[idx]
+    # print(categories[idx] + '(' + str(prob) + ')' +
+    #      ' -- ' + str(positive_id_threshold))
 
-    print('Category: ' + cat + '  prob: ' + str(prob))
+    if prob >= positive_id_threshold:
+        cat = categories[idx]
+    else:
+        cat = 'unknown'
+
+    print(fn + ' -- category: ' + cat + '  prob: ' + str(prob))
     return idx, cat, prob
 
 
-def predict_all_imgs(im_folder, model, data_module, categories):
+def predict_all_imgs(im_folder, model, data_module, categories,
+                     positive_id_threshold):
     """
     Predict categories for all images in a folder.
 
@@ -129,17 +138,25 @@ def predict_all_imgs(im_folder, model, data_module, categories):
 
                 # Generate prediction for the image
                 idx, cat, prob = predict_img(filepath, model, data_module,
-                                             categories)
+                                             categories, positive_id_threshold)
+
+                # The classifier will never produce an index corresponding
+                # to 'unknown', we have to fix that up when we have
+                # decided that the certainty isn't high enough to
+                # decide which category an image belongs to.
+                if cat == 'unknown':
+                    idx = len(categories)-1
+
                 labels.append(idx)
-                label_names.append(categories[idx])
+                label_names.append(cat)
                 probs.append(prob)
 
-                print(f + ': ' + cat + ' (' + str(prob) + ')')
+                # print(f + ': ' + cat + ' (' + str(prob) + ')')
 
     return filepaths, labels, label_names, probs
 
 
-def copy_to_folders(result_dir, filepaths, labels, category_names):
+def copy_to_folders(result_dir, filepaths, labels, category_names, probs):
     """
     Copy classified images to appropriate folders.
 
@@ -158,6 +175,11 @@ def copy_to_folders(result_dir, filepaths, labels, category_names):
     if not os.path.exists(result_dir):
         os.mkdir(result_dir)
 
+    # Set up a log file to record the categories/probabilities for
+    # each image file.
+    log_file_name = os.path.join(result_dir, 'classification_log.txt')
+    log_file = open(log_file_name, 'w')
+
     # directory now known to exist, create subfolders
     for category in category_names:
         subdir_path = os.path.join(result_dir, category)
@@ -166,8 +188,27 @@ def copy_to_folders(result_dir, filepaths, labels, category_names):
         if not os.path.exists(subdir_path):
             os.mkdir(subdir_path)
 
+    unknown_subdir = os.path.join(result_dir, 'unknown')
+    if not os.path.exists(unknown_subdir):
+        os.mkdir(unknown_subdir)
+
     # Folders for each category now guaranteed to exist in result_dir
-    _copy_data(result_dir, filepaths, labels, category_names)
+    # _copy_data(result_dir, filepaths, labels, category_names)
+    for i in xrange(len(filepaths)):
+        p, label, prob = filepaths[i], labels[i], probs[i]
+        subfolder = os.path.join(result_dir, category_names[label])
+
+        if not os.path.exists(subfolder):
+            os.makedirs(subfolder)
+
+        shutil.copy(p, subfolder)
+
+        base, fn = os.path.split(p)
+        outstr = fn + ',' + category_names[label] + ',' + str(prob) + '\n'
+        # print(outstr)
+        log_file.write(outstr)
+
+    log_file.close()
 
 
 def get_category_names(category_file):
@@ -207,8 +248,15 @@ def main():
     parser.add_argument('--result_dir',
                         help='path for result folders',
                         default='results')
+    parser.add_argument('--positive_id_threshold', type=float,
+                        help='images that do not meet this threshold ' +
+                        'are classified as "unknown"',
+                        default=0.5)
 
     args = parser.parse_args()
+
+    print('Classifying from ' + args.name + '  pos_id_thresh=' +
+          str(args.positive_id_threshold))
 
     # .py file describing the data to use, incl. path to folder
     data_module = importlib.import_module('data.{}'.format(args.data))
@@ -218,14 +266,18 @@ def main():
 
     model = keras.models.load_model(args.classifier)
     categories = get_category_names(args.category_file)
+    categories.append('unknown')
+
     # print('Categories: ' + str(categories))
 
     if args.type == 'file':
         predict_img(args.name, model, data_module, categories)
     else:
         filepaths, labels, label_names, probs = \
-            predict_all_imgs(args.name, model, data_module, categories)
-        copy_to_folders(args.result_dir, filepaths, labels, categories)
+            predict_all_imgs(args.name, model, data_module, categories,
+                             args.positive_id_threshold)
+        copy_to_folders(args.result_dir, filepaths, labels,
+                        categories, probs)
 
 
 if __name__ == '__main__':
