@@ -28,7 +28,7 @@ def parse_filename(fn):
     time_parts = timestr.split('.')
     # Handle situation where two images were captured during the same sec.
     time_parts[2] = time_parts[2].split('-')[0]
-    sec = int(time_parts[0]) * int(time_parts[1])*60 + int(time_parts[2])
+    sec = int(time_parts[0]) * 3600 + int(time_parts[1])*60 + int(time_parts[2])
 
     return date, sec
 
@@ -40,10 +40,11 @@ def what_next(train_frac, val_frac, test_frac, total_processed, counts):
     Choose where the next run of images goes (train, validate, or test)
     based on percentages already copied and the target percentages in
     each of those three subdirectories.
+    :rtype: int
     """
-    if counts[TRAIN_MODE]/total_processed < train_frac:
+    if counts[TRAIN_MODE]/(total_processed * 1.0) < train_frac:
         curr_mode = TRAIN_MODE
-    elif counts[VAL_MODE]/total_processed < val_frac or \
+    elif counts[VAL_MODE]/(total_processed * 1.0) < val_frac or \
             test_frac == 0.0:
         curr_mode = VAL_MODE
     else:
@@ -65,12 +66,15 @@ def main():
                         help='Fraction of images to add to validation set')
     parser.add_argument('test_fraction',
                         help='Fraction of images to add to test set (0 ok)')
+    parser.add_argument('min_gap',
+                        default='45'
+                        help='Minimum gap separating runs in seconds')
 
     args = parser.parse_args()
 
     print('Splitting ' + args.source_dir + '\n' +
           '(test/val/train):  (' + args.train_fraction + '/' +
-          args.validate_fraction + '/' + args.test_fraction + ')')
+          args.validate_fraction + '/' + args.test_fraction + ')\n')
 
     train_frac = float(args.train_fraction)
     val_frac = float(args.validate_fraction)
@@ -104,7 +108,7 @@ def main():
     #          label_names[categories[i]])
 
     sub_dirs = ['train', 'val', 'test']
-    run_separation_threshold = 45  # seconds
+    run_separation_threshold = int(args.min_gap)  # seconds
 
     if not os.path.exists(args.split_dir):
         os.makedirs(args.split_dir)
@@ -142,7 +146,7 @@ def main():
         if not os.path.exists(test_cat_path):
             os.makedirs(test_cat_path)
 
-        # Loop through all images in this category and distribute
+        # Loop through all images in category curr_cat and distribute
         # among train, validate, and test according to requested percentages
         # Keep multiple images that are part of one visit to the feeder
         # as indicated by the timestamp together. The end percentages will
